@@ -22,7 +22,7 @@ export default function AdminDashboardPage() {
     name: '', category: '', short: '', img: '', dimensions: '',
     specs: [{ label: '', value: '' }],
     applications: '', sizes: '',
-    company: '', customFilters: []
+    company: '', customFilters: [], brochureUrl: ''
   })
   const [editingProduct, setEditingProduct] = useState(null) // null = adding, productObj = editing
   const [showProductModal, setShowProductModal] = useState(false)
@@ -211,7 +211,8 @@ export default function AdminDashboardPage() {
       applications: '',
       sizes: '',
       company: dealerships[0]?.name || '',
-      customFilters: []
+      customFilters: [],
+      brochureUrl: ''
     })
     setShowProductModal(true)
   }
@@ -228,7 +229,8 @@ export default function AdminDashboardPage() {
       applications: prod.applications ? prod.applications.join(', ') : '',
       sizes: prod.sizes ? prod.sizes.join(', ') : '',
       company: prod.company || '',
-      customFilters: prod.customFilters || []
+      customFilters: prod.customFilters || [],
+      brochureUrl: prod.brochureUrl || ''
     })
     setShowProductModal(true)
   }
@@ -291,7 +293,8 @@ export default function AdminDashboardPage() {
       applications: appsArray,
       sizes: sizesArray,
       company: productForm.company,
-      customFilters: productForm.customFilters
+      customFilters: productForm.customFilters,
+      brochureUrl: productForm.brochureUrl
     }
 
     try {
@@ -1273,6 +1276,17 @@ export default function AdminDashboardPage() {
                             <option key={d._id} value={d.name}>{d.name}</option>
                           ))}
                         </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs uppercase font-semibold text-gray-400 mb-2">Brochure PDF URL</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. https://example.com/brochure.pdf"
+                          value={productForm.brochureUrl || ''}
+                          onChange={(e) => setProductForm({ ...productForm, brochureUrl: e.target.value })}
+                          className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-3 text-sm rounded-lg"
+                        />
                       </div>
                       
                       {customFilters.map((group) => {

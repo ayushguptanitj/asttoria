@@ -28,7 +28,8 @@ const ProductSchema = new mongoose.Schema({
   customFilters: [{
     name: { type: String, required: true },
     value: { type: String, required: true }
-  }]
+  }],
+  brochureUrl: { type: String, default: '' }
 });
 
 // --- Homepage Settings Schema ---

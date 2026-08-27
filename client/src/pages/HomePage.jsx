@@ -4,9 +4,6 @@ import AboutSection from '../components/AboutSection'
 import DealershipsSection from '../components/DealershipsSection'
 import FeaturesSection from '../components/FeaturesSection'
 import ProductsSection from '../components/ProductsSection'
-import GallerySection from '../components/GallerySection'
-import ProcessSection from '../components/ProcessSection'
-import CTASection from '../components/CTASection'
 import { API_URL } from '../config'
 
 export default function HomePage() {
@@ -35,9 +32,6 @@ export default function HomePage() {
       <DealershipsSection />
       <FeaturesSection settings={settings} />
       <ProductsSection settings={settings} />
-      <GallerySection />
-      <ProcessSection />
-      <CTASection />
     </>
   )
 }

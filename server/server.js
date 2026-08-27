@@ -291,6 +291,10 @@ async function seedDatabase() {
       { customFilters: { $exists: false } },
       { $set: { customFilters: [] } }
     );
+    await Product.updateMany(
+      { brochureUrl: { $exists: false } },
+      { $set: { brochureUrl: '' } }
+    );
     console.log('Product migration checked/applied successfully.');
 
   } catch (error) {
@@ -345,7 +349,7 @@ app.get('/api/products', async (req, res) => {
 
 app.post('/api/products', authMiddleware, async (req, res) => {
   try {
-    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters } = req.body;
+    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl } = req.body;
     if (!name || !category || !short) {
       return res.status(400).json({ success: false, message: 'Name, category and short description are required.' });
     }
@@ -355,7 +359,7 @@ app.post('/api/products', authMiddleware, async (req, res) => {
     const id = `${rawId}-${suffix}`;
 
     const newProduct = await Product.create({
-      id, name, category, short, img, dimensions, specs, applications, sizes, company, customFilters
+      id, name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl
     });
     res.status(201).json({ success: true, data: newProduct });
   } catch (error) {
@@ -366,10 +370,11 @@ app.post('/api/products', authMiddleware, async (req, res) => {
 app.put('/api/products/:dbId', authMiddleware, async (req, res) => {
   try {
     const { dbId } = req.params;
-    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters } = req.body;
+    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl } = req.body;
     
+    console.log('PUT body:', req.body);
     const updated = await Product.findByIdAndUpdate(dbId, {
-      name, category, short, img, dimensions, specs, applications, sizes, company, customFilters
+      name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl
     }, { new: true });
 
     if (!updated) {

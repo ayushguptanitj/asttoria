@@ -33,6 +33,8 @@ export default function Navbar() {
           {[
             { to: '/', label: 'Home', testId: 'nav-link-home', end: true },
             { to: '/products', label: 'Products', testId: 'nav-link-products' },
+            { to: '/projects', label: 'Our Work', testId: 'nav-link-projects' },
+            { to: '/terms', label: 'Terms & Conditions', testId: 'nav-link-terms' },
             { to: '/contact', label: 'Contact', testId: 'nav-link-contact' },
           ].map(({ to, label, testId, end }) => (
             <NavLink
@@ -114,6 +116,8 @@ export default function Navbar() {
           {[
             { to: '/', label: 'Home', testId: 'nav-link-home-mobile', end: true },
             { to: '/products', label: 'Products', testId: 'nav-link-products-mobile' },
+            { to: '/projects', label: 'Our Work', testId: 'nav-link-projects-mobile' },
+            { to: '/terms', label: 'Terms & Conditions', testId: 'nav-link-terms-mobile' },
             { to: '/contact', label: 'Contact', testId: 'nav-link-contact-mobile' },
           ].map(({ to, label, testId, end }) => (
             <NavLink
