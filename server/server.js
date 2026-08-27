@@ -7,10 +7,10 @@ import 'dotenv/config';
 import { Product, Category, HomepageSettings, GalleryItem, Quote, Dealership, CustomFilter } from './models/Schemas.js';
 
 // Import initial data from client to seed database if empty
-import { CATEGORIES, PRODUCTS } from '../client/src/data/products.js';
+import { CATEGORIES, PRODUCTS } from './data/products.js';
 
 const app = express();
-const PORT = process.env.PORT || 4173;
+const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 app.use(cors());
@@ -306,7 +306,7 @@ const authMiddleware = (req, res, next) => {
   }
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'asttoria_super_secret_key_1996');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
     next();
   } catch (error) {
@@ -319,11 +319,11 @@ const authMiddleware = (req, res, next) => {
 // 1. Admin Login & Verification
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body;
-  const adminUser = process.env.ADMIN_USERNAME || 'admin';
-  const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
+  const adminUser = process.env.ADMIN_USERNAME;
+  const adminPass = process.env.ADMIN_PASSWORD;
 
   if (username === adminUser && password === adminPass) {
-    const token = jwt.sign({ username }, process.env.JWT_SECRET || 'asttoria_super_secret_key_1996', { expiresIn: '1d' });
+    const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: '1d' });
     return res.json({ success: true, token });
   }
   return res.status(400).json({ success: false, message: 'Invalid admin username or password.' });
