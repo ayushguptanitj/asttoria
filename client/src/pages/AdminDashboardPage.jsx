@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import logo from '../assets/logo.png'
 import { API_URL } from '../config'
 
 export default function AdminDashboardPage() {
@@ -22,7 +23,8 @@ export default function AdminDashboardPage() {
     name: '', category: '', short: '', img: '', dimensions: '',
     specs: [{ label: '', value: '' }],
     applications: '', sizes: '',
-    company: '', customFilters: [], brochureUrl: ''
+    company: '', customFilters: [], brochureUrl: '', highlights: [],
+    projectsUsed: []
   })
   const [editingProduct, setEditingProduct] = useState(null) // null = adding, productObj = editing
   const [showProductModal, setShowProductModal] = useState(false)
@@ -37,6 +39,12 @@ export default function AdminDashboardPage() {
   const [filterName, setFilterName] = useState('')
   const [filterOptionsText, setFilterOptionsText] = useState('')
   const [editingFilter, setEditingFilter] = useState(null)
+
+  const [highlightProperties, setHighlightProperties] = useState([])
+  const [badgeLabel, setBadgeLabel] = useState('')
+  const [badgeColor, setBadgeColor] = useState('#EF4444')
+  const [editingBadge, setEditingBadge] = useState(null)
+  const [connectionError, setConnectionError] = useState(false)
 
   const navigate = useNavigate()
 
@@ -63,6 +71,7 @@ export default function AdminDashboardPage() {
       }
     } catch (err) {
       console.error('Auth verification failed (server may be offline):', err)
+      setConnectionError(true)
       setLoading(false)
       return
     }
@@ -75,6 +84,7 @@ export default function AdminDashboardPage() {
     let homeData = null
     let dlData = []
     let filtersData = []
+    let highlightData = []
 
     try {
       const res = await fetch(`${API_URL}/products`)
@@ -111,6 +121,11 @@ export default function AdminDashboardPage() {
       if (res.ok) filtersData = await res.json()
     } catch (e) { console.error('Error fetching custom filters:', e) }
 
+    try {
+      const res = await fetch(`${API_URL}/highlight-properties`)
+      if (res.ok) highlightData = await res.json()
+    } catch (e) { console.error('Error fetching highlight properties:', e) }
+
     setProducts(prodData)
     setCategories(catData)
     setGallery(galData)
@@ -118,6 +133,7 @@ export default function AdminDashboardPage() {
     setHomepage(homeData)
     setDealerships(dlData)
     setCustomFilters(filtersData)
+    setHighlightProperties(highlightData)
 
     setStats({
       products: prodData.length,
@@ -212,7 +228,9 @@ export default function AdminDashboardPage() {
       sizes: '',
       company: dealerships[0]?.name || '',
       customFilters: [],
-      brochureUrl: ''
+      brochureUrl: '',
+      highlights: [],
+      projectsUsed: []
     })
     setShowProductModal(true)
   }
@@ -230,7 +248,9 @@ export default function AdminDashboardPage() {
       sizes: prod.sizes ? prod.sizes.join(', ') : '',
       company: prod.company || '',
       customFilters: prod.customFilters || [],
-      brochureUrl: prod.brochureUrl || ''
+      brochureUrl: prod.brochureUrl || '',
+      highlights: prod.highlights || [],
+      projectsUsed: prod.projectsUsed || []
     })
     setShowProductModal(true)
   }
@@ -242,17 +262,13 @@ export default function AdminDashboardPage() {
     setProductForm({ ...productForm, specs: updated })
   }
 
-  function handleProductCustomFilterChange(filterName, value) {
+  function handleProductCustomFilterChange(filterName, values) {
     let updated = [...(productForm.customFilters || [])]
-    if (!value) {
-      updated = updated.filter(cf => cf.name !== filterName)
+    const exists = updated.find(cf => cf.name === filterName)
+    if (exists) {
+      exists.values = values
     } else {
-      const exists = updated.find(cf => cf.name === filterName)
-      if (exists) {
-        exists.value = value
-      } else {
-        updated.push({ name: filterName, value })
-      }
+      updated.push({ name: filterName, values })
     }
     setProductForm({ ...productForm, customFilters: updated })
   }
@@ -294,7 +310,9 @@ export default function AdminDashboardPage() {
       sizes: sizesArray,
       company: productForm.company,
       customFilters: productForm.customFilters,
-      brochureUrl: productForm.brochureUrl
+      brochureUrl: productForm.brochureUrl,
+      highlights: productForm.highlights,
+      projectsUsed: productForm.projectsUsed
     }
 
     try {
@@ -541,6 +559,82 @@ export default function AdminDashboardPage() {
     }
   }
 
+  // --- Highlight Properties CRUD Handlers ---
+  async function handleAddOrUpdateBadge(e) {
+    e.preventDefault()
+    if (!badgeLabel.trim() || !badgeColor.trim()) return
+
+    const payload = { label: badgeLabel.trim(), color: badgeColor.trim() }
+
+    try {
+      if (editingBadge) {
+        // Update
+        const res = await fetch(`${API_URL}/highlight-properties/${editingBadge._id}`, {
+          method: 'PUT',
+          headers: getAuthHeader(),
+          body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        if (data.success) {
+          setHighlightProperties(highlightProperties.map(b => b._id === editingBadge._id ? data.data : b))
+          setBadgeLabel('')
+          setBadgeColor('#EF4444')
+          setEditingBadge(null)
+        } else {
+          alert(data.message || 'Failed to update property badge')
+        }
+      } else {
+        // Create
+        const res = await fetch(`${API_URL}/highlight-properties`, {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        if (data.success) {
+          setHighlightProperties([...highlightProperties, data.data])
+          setBadgeLabel('')
+          setBadgeColor('#EF4444')
+        } else {
+          alert(data.message || 'Failed to create property badge')
+        }
+      }
+    } catch (err) {
+      alert('Error saving property badge')
+    }
+  }
+
+  function startEditBadge(badge) {
+    setEditingBadge(badge)
+    setBadgeLabel(badge.label)
+    setBadgeColor(badge.color)
+  }
+
+  function cancelEditBadge() {
+    setEditingBadge(null)
+    setBadgeLabel('')
+    setBadgeColor('#EF4444')
+  }
+
+  async function handleDeleteBadge(dbId) {
+    if (!window.confirm('Are you sure you want to delete this special property badge? Products referencing this badge will no longer display it.')) return
+
+    try {
+      const res = await fetch(`${API_URL}/highlight-properties/${dbId}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      })
+      const data = await res.json()
+      if (data.success) {
+        setHighlightProperties(highlightProperties.filter(b => b._id !== dbId))
+      } else {
+        alert(data.message || 'Failed to delete property badge')
+      }
+    } catch (err) {
+      alert('Error deleting property badge')
+    }
+  }
+
   // --- Gallery Handlers ---
   async function handleAddGalleryItem(e) {
     e.preventDefault()
@@ -623,9 +717,7 @@ export default function AdminDashboardPage() {
       {/* 1. Sidebar */}
       <aside className="w-64 border-r border-white/5 bg-white/[0.02] flex flex-col shrink-0">
         <div className="p-6 border-b border-white/5 flex items-center gap-3">
-          <div className="w-8 h-8 bg-[#0A4FAF] text-white font-black grid place-items-center text-sm shadow-md">
-            A
-          </div>
+          <img src={logo} alt="ASTTORIA Logo" className="w-8 h-8 object-contain" />
           <div>
             <h1 className="font-extrabold text-sm text-white tracking-wider uppercase">ASTTORIA</h1>
             <p className="text-[10px] text-white/40 uppercase tracking-[0.18em]">Admin Panel</p>
@@ -640,6 +732,7 @@ export default function AdminDashboardPage() {
             { id: 'gallery', label: 'Project Gallery', icon: '🖼️' },
             { id: 'dealerships', label: 'Manage Dealerships', icon: '🤝' },
             { id: 'custom-filters', label: 'Custom Specifications', icon: '⚙️' },
+            { id: 'special-badges', label: 'Special Properties', icon: '🏷️' },
             { id: 'products', label: 'Manage Products', icon: '🛠️' },
             { id: 'categories', label: 'Filters & Categories', icon: '📂' },
             { id: 'leads', label: 'Customer Leads', icon: '✉️', count: stats.leads }
@@ -684,6 +777,18 @@ export default function AdminDashboardPage() {
 
       {/* 2. Main Content Area */}
       <main className="flex-1 flex flex-col overflow-y-auto p-8 lg:p-12 relative max-h-screen">
+        {connectionError && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6 mb-8 flex items-start gap-4 shrink-0">
+            <span className="text-2xl mt-0.5">⚠️</span>
+            <div>
+              <h3 className="font-bold text-white text-md">Backend API Server Offline or Unreachable</h3>
+              <p className="text-gray-400 text-xs mt-1 leading-relaxed">
+                The frontend is attempting to connect to the backend server at <code className="bg-white/5 px-1.5 py-0.5 rounded font-mono text-white text-[11px]">{API_URL}</code>, but the connection was refused. 
+                Please verify that your Express backend server is running locally (e.g. on port 3001) and refresh the page. If you recently restarted the dev server, you may also need to clear your browser cache.
+              </p>
+            </div>
+          </div>
+        )}
         
         {/* TAB 1: DASHBOARD OVERVIEW */}
         {activeTab === 'dashboard' && (
@@ -1290,25 +1395,75 @@ export default function AdminDashboardPage() {
                       </div>
                       
                       {customFilters.map((group) => {
-                        const currentVal = productForm.customFilters?.find(cf => cf.name === group.name)?.value || ''
+                        const currentVals = productForm.customFilters?.find(cf => cf.name === group.name)?.values || []
                         return (
-                          <div key={group._id}>
-                            <label className="block text-xs uppercase font-semibold text-gray-400 mb-2">
+                          <div key={group._id} className="col-span-1 md:col-span-2 space-y-2">
+                            <label className="block text-xs uppercase font-semibold text-gray-400">
                               Spec: {group.name}
                             </label>
-                            <select
-                              value={currentVal}
-                              onChange={(e) => handleProductCustomFilterChange(group.name, e.target.value)}
-                              className="w-full bg-[#1E293B] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-3 text-sm rounded-lg text-white"
-                            >
-                              <option value="">-- None --</option>
-                              {group.options.map(opt => (
-                                <option key={opt} value={opt}>{opt}</option>
-                              ))}
-                            </select>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-white/[0.02] border border-white/5 p-3 rounded-lg max-h-40 overflow-y-auto">
+                              {group.options.map(opt => {
+                                const checked = currentVals.includes(opt)
+                                return (
+                                  <label key={opt} className="flex items-center gap-2 text-xs text-gray-300 hover:text-white cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => {
+                                        let updatedVals
+                                        if (checked) {
+                                          updatedVals = currentVals.filter(v => v !== opt)
+                                        } else {
+                                          updatedVals = [...currentVals, opt]
+                                        }
+                                        handleProductCustomFilterChange(group.name, updatedVals)
+                                      }}
+                                      className="w-4 h-4 rounded-sm border-white/10 text-[#0A4FAF] focus:ring-0 focus:ring-offset-0 bg-[#1E293B] cursor-pointer"
+                                    />
+                                    <span>{opt}</span>
+                                  </label>
+                                )
+                              })}
+                            </div>
                           </div>
                         )
                       })}
+                    </div>
+
+                    {/* Special Property Badges Checkboxes */}
+                    <div className="border-t border-white/5 pt-5">
+                      <label className="block text-xs uppercase font-semibold text-gray-400 mb-3">Special Highlight Badges</label>
+                      {highlightProperties.length > 0 ? (
+                        <div className="flex flex-wrap gap-4">
+                          {highlightProperties.map(badge => {
+                            const isChecked = productForm.highlights?.includes(badge.label) || false
+                            return (
+                              <label key={badge._id} className="flex items-center gap-2 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    const current = productForm.highlights || []
+                                    const updated = current.includes(badge.label)
+                                      ? current.filter(lbl => lbl !== badge.label)
+                                      : [...current, badge.label]
+                                    setProductForm({ ...productForm, highlights: updated })
+                                  }}
+                                  className="w-4 h-4 rounded border-white/10 text-[#0A4FAF] focus:ring-[#0A4FAF]/20 bg-white/[0.04]"
+                                />
+                                <span
+                                  style={{ color: isChecked ? badge.color : '#9CA3AF' }}
+                                  className="text-xs font-bold font-mono tracking-wide uppercase transition-colors"
+                                >
+                                  {badge.label}
+                                </span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500 italic">No special properties defined. Create some in the Special Properties tab.</p>
+                      )}
                     </div>
 
                     <div>
@@ -1384,6 +1539,81 @@ export default function AdminDashboardPage() {
                           onChange={(e) => setProductForm({ ...productForm, sizes: e.target.value })}
                           className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-3 text-sm rounded-lg mt-1"
                         />
+                      </div>
+                    </div>
+
+                    {/* Projects Featuring This Product */}
+                    <div className="border-t border-white/5 pt-5 space-y-4">
+                      <div>
+                        <label className="block text-xs uppercase font-extrabold tracking-wider text-gray-400">Projects Featuring This Product</label>
+                        <p className="text-[11px] text-gray-400 mt-1">Upload images of projects where this product has been installed.</p>
+                      </div>
+
+                      {productForm.projectsUsed && productForm.projectsUsed.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-48 overflow-y-auto pr-1">
+                          {productForm.projectsUsed.map((proj, idx) => (
+                            <div key={idx} className="flex items-center gap-3 bg-white/[0.02] border border-white/5 p-2 rounded-lg relative group">
+                              <img src={proj.imageUrl} alt={proj.name} className="w-10 h-10 object-cover rounded" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-white truncate">{proj.name}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = productForm.projectsUsed.filter((_, i) => i !== idx);
+                                  setProductForm({ ...productForm, projectsUsed: updated });
+                                }}
+                                className="p-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded transition-colors text-xs cursor-pointer font-semibold"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Sub-form to add a project */}
+                      <div className="bg-white/[0.01] border border-white/5 p-4 rounded-xl space-y-3">
+                        <div className="text-xs font-bold text-white">Add Project Showcase Item</div>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div>
+                            <input
+                              type="text"
+                              id="new-project-name"
+                              placeholder="Project / Location Name (e.g. Centara Mall)"
+                              className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-3 py-2 text-xs rounded"
+                            />
+                          </div>
+                          <div>
+                            <input
+                              type="text"
+                              id="new-project-image"
+                              placeholder="Project Image URL (e.g. https://...)"
+                              className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-3 py-2 text-xs rounded"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nameEl = document.getElementById('new-project-name');
+                            const imgEl = document.getElementById('new-project-image');
+                            if (nameEl && imgEl && nameEl.value.trim() && imgEl.value.trim()) {
+                              const newProj = { name: nameEl.value.trim(), imageUrl: imgEl.value.trim() };
+                              setProductForm({
+                                ...productForm,
+                                projectsUsed: [...(productForm.projectsUsed || []), newProj]
+                              });
+                              nameEl.value = '';
+                              imgEl.value = '';
+                            } else {
+                              alert('Please provide both a project name and an image URL.');
+                            }
+                          }}
+                          className="w-full py-2 bg-[#0A4FAF]/20 hover:bg-[#0A4FAF]/30 border border-[#0A4FAF]/30 text-[#7BA7E8] text-xs font-bold rounded transition-colors cursor-pointer"
+                        >
+                          + Add Project to Product Showcase
+                        </button>
                       </div>
                     </div>
 
@@ -1655,6 +1885,119 @@ export default function AdminDashboardPage() {
               ) : (
                 <div className="text-center py-16 bg-white/[0.01] border border-white/5 rounded-xl text-gray-500">
                   No custom specifications filters defined yet.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'special-badges' && (
+          <div className="space-y-10">
+            <div>
+              <h2 className="text-3xl font-black text-white tracking-tight">Special Property Badges</h2>
+              <p className="text-gray-400 mt-2 text-sm">Define highlighted product properties (like Heat Resistant, Rust Proof, Fire Rated) and specify unique color codes for each. These badges will render as highlighted pills when a product is clicked.</p>
+            </div>
+
+            {/* Add/Edit Form */}
+            <form onSubmit={handleAddOrUpdateBadge} className="bg-white/[0.02] border border-white/5 p-8 rounded-xl space-y-6">
+              <h3 className="text-lg font-bold text-white border-b border-white/5 pb-3">
+                {editingBadge ? 'Edit Special Property Badge' : 'Create New Special Property Badge'}
+              </h3>
+              
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs uppercase font-semibold text-gray-400 mb-2">Badge Name / Label *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Heat Resistant, Impact Resistant, Soundproof"
+                    value={badgeLabel}
+                    onChange={(e) => setBadgeLabel(e.target.value)}
+                    className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-3 text-sm rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs uppercase font-semibold text-gray-400 mb-2">Badge Color Code *</label>
+                  <div className="flex gap-3">
+                    <input
+                      type="color"
+                      required
+                      value={badgeColor}
+                      onChange={(e) => setBadgeColor(e.target.value)}
+                      className="w-12 h-11 bg-white/[0.04] border border-white/10 rounded-lg cursor-pointer p-1"
+                    />
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. #EF4444"
+                      value={badgeColor}
+                      onChange={(e) => setBadgeColor(e.target.value)}
+                      className="flex-1 bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-3 text-sm rounded-lg font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  className="bg-[#0A4FAF] hover:bg-[#083D87] text-white font-bold px-6 py-3 rounded-lg shadow-lg shadow-[#0A4FAF]/15 text-sm cursor-pointer"
+                >
+                  {editingBadge ? 'Update Badge' : 'Add Property Badge'}
+                </button>
+                {editingBadge && (
+                  <button
+                    type="button"
+                    onClick={cancelEditBadge}
+                    className="bg-white/10 hover:bg-white/15 text-white font-bold px-6 py-3 rounded-lg text-sm cursor-pointer"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {/* List */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-bold text-white">Active Special Badges ({highlightProperties.length})</h3>
+
+              {highlightProperties.length > 0 ? (
+                <div className="grid md:grid-cols-3 gap-6">
+                  {highlightProperties.map(badge => (
+                    <div key={badge._id} className="bg-white/[0.02] border border-white/5 p-6 rounded-xl space-y-4 relative group flex flex-col justify-between">
+                      <div className="absolute top-4 right-4 flex gap-1.5">
+                        <button
+                          onClick={() => startEditBadge(badge)}
+                          className="bg-[#0A4FAF]/20 text-[#7BA7E8] hover:bg-[#0A4FAF]/30 px-2 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteBadge(badge._id)}
+                          className="bg-red-500/10 hover:bg-red-500/20 text-red-400 px-2 py-0.5 rounded text-[10px] font-semibold border border-red-500/20 transition-colors cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </div>
+
+                      <div className="space-y-3 pt-2">
+                        <span
+                          style={{ backgroundColor: `${badge.color}15`, color: badge.color, borderColor: `${badge.color}30` }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 border text-xs font-bold uppercase tracking-wider rounded-full animate-none"
+                        >
+                          <span style={{ backgroundColor: badge.color }} className="w-1.5 h-1.5 rounded-full" />
+                          {badge.label}
+                        </span>
+                        <div className="text-xs text-gray-500 font-mono">
+                          Color: {badge.color}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-16 bg-white/[0.01] border border-white/5 rounded-xl text-gray-500">
+                  No special properties badges defined yet.
                 </div>
               )}
             </div>

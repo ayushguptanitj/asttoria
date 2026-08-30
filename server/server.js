@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 
-import { Product, Category, HomepageSettings, GalleryItem, Quote, Dealership, CustomFilter } from './models/Schemas.js';
+import { Product, Category, HomepageSettings, GalleryItem, Quote, Dealership, CustomFilter, HighlightProperty } from './models/Schemas.js';
 
 // Import initial data from client to seed database if empty
 import { CATEGORIES, PRODUCTS } from './data/products.js';
@@ -14,6 +14,10 @@ const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 app.use(cors());
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
 
 // --- Database Connection & Seeding ---
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/asttoria';
@@ -282,6 +286,20 @@ async function seedDatabase() {
       console.log('Seeded default custom filters.');
     }
 
+    // Seed Default Highlight Properties
+    const highlightCount = await HighlightProperty.countDocuments();
+    if (highlightCount === 0) {
+      console.log('Seeding default highlight properties...');
+      const defaultHighlights = [
+        { label: 'Heat Resistant', color: '#EF4444' },
+        { label: 'Impact Resistant', color: '#F59E0B' },
+        { label: 'Acoustic Insulation', color: '#3B82F6' },
+        { label: 'Rust Proof', color: '#10B981' }
+      ];
+      await HighlightProperty.insertMany(defaultHighlights);
+      console.log('Seeded default highlight properties.');
+    }
+
     // Migrate Products: Set default company and empty customFilters array if missing
     await Product.updateMany(
       { company: { $exists: false } },
@@ -295,6 +313,32 @@ async function seedDatabase() {
       { brochureUrl: { $exists: false } },
       { $set: { brochureUrl: '' } }
     );
+    await Product.updateMany(
+      { highlights: { $exists: false } },
+      { $set: { highlights: [] } }
+    );
+    await Product.updateMany(
+      { projectsUsed: { $exists: false } },
+      { $set: { projectsUsed: [] } }
+    );
+    // Dynamic migration of customFilters format from value: String to values: [String]
+    const productsToMigrate = await Product.find({});
+    for (const p of productsToMigrate) {
+      let changed = false;
+      const migratedFilters = (p.customFilters || []).map((cf) => {
+        // If Old value string is present but values array is empty or missing
+        if (cf.value !== undefined && (!cf.values || cf.values.length === 0)) {
+          changed = true;
+          return { name: cf.name, values: [cf.value] };
+        }
+        return cf;
+      });
+      if (changed) {
+        // We bypass Mongoose strict validation for the update just in case, by updating via query
+        await Product.updateOne({ _id: p._id }, { $set: { customFilters: migratedFilters } });
+      }
+    }
+
     console.log('Product migration checked/applied successfully.');
 
   } catch (error) {
@@ -349,7 +393,7 @@ app.get('/api/products', async (req, res) => {
 
 app.post('/api/products', authMiddleware, async (req, res) => {
   try {
-    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl } = req.body;
+    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed } = req.body;
     if (!name || !category || !short) {
       return res.status(400).json({ success: false, message: 'Name, category and short description are required.' });
     }
@@ -359,7 +403,7 @@ app.post('/api/products', authMiddleware, async (req, res) => {
     const id = `${rawId}-${suffix}`;
 
     const newProduct = await Product.create({
-      id, name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl
+      id, name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed
     });
     res.status(201).json({ success: true, data: newProduct });
   } catch (error) {
@@ -370,11 +414,11 @@ app.post('/api/products', authMiddleware, async (req, res) => {
 app.put('/api/products/:dbId', authMiddleware, async (req, res) => {
   try {
     const { dbId } = req.params;
-    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl } = req.body;
+    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed } = req.body;
     
     console.log('PUT body:', req.body);
     const updated = await Product.findByIdAndUpdate(dbId, {
-      name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl
+      name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed
     }, { new: true });
 
     if (!updated) {
@@ -521,6 +565,63 @@ app.delete('/api/custom-filters/:dbId', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Filter group not found.' });
     }
     res.json({ success: true, message: 'Filter group deleted successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// --- Highlight Properties API ---
+app.get('/api/highlight-properties', async (req, res) => {
+  try {
+    const list = await HighlightProperty.find({});
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/highlight-properties', authMiddleware, async (req, res) => {
+  try {
+    const { label, color } = req.body;
+    if (!label || !color) {
+      return res.status(400).json({ success: false, message: 'Badge label and color are required.' });
+    }
+    const exists = await HighlightProperty.findOne({ label });
+    if (exists) {
+      return res.status(400).json({ success: false, message: 'A badge with this label already exists.' });
+    }
+    const newBadge = await HighlightProperty.create({ label, color });
+    res.status(201).json({ success: true, data: newBadge });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/api/highlight-properties/:dbId', authMiddleware, async (req, res) => {
+  try {
+    const { dbId } = req.params;
+    const { label, color } = req.body;
+    if (!label || !color) {
+      return res.status(400).json({ success: false, message: 'Badge label and color are required.' });
+    }
+    const updated = await HighlightProperty.findByIdAndUpdate(dbId, { label, color }, { new: true });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Badge not found.' });
+    }
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/highlight-properties/:dbId', authMiddleware, async (req, res) => {
+  try {
+    const { dbId } = req.params;
+    const deleted = await HighlightProperty.findByIdAndDelete(dbId);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Badge not found.' });
+    }
+    res.json({ success: true, message: 'Badge deleted successfully.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

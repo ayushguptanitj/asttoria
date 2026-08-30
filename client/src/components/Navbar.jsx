@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
+import logo from '../assets/logo.png'
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -15,9 +16,7 @@ export default function Navbar() {
           className="flex items-center gap-3 group"
           to="/"
         >
-          <div className="w-9 h-9 bg-[#0A4FAF] text-white grid place-items-center font-black tracking-tight text-base">
-            A
-          </div>
+          <img src={logo} alt="ASTTORIA Logo" className="w-9 h-9 object-contain" />
           <div className="leading-none">
             <div className="text-lg md:text-xl font-extrabold tracking-tight text-[#111827]">
               ASTTORIA

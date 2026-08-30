@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import logo from '../assets/logo.png'
 
 const ArrowUpRight = () => (
   <svg
@@ -39,9 +40,7 @@ export default function Footer() {
           {/* Brand column */}
           <div className="md:col-span-5">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#0A4FAF] grid place-items-center font-black text-base">
-                A
-              </div>
+              <img src={logo} alt="ASTTORIA Logo" className="w-10 h-10 object-contain" />
               <div>
                 <div className="text-xl font-extrabold">ASTTORIA</div>
                 <div className="text-[10px] uppercase tracking-[0.25em] text-white/60">

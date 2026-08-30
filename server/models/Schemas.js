@@ -10,6 +10,11 @@ const CustomFilterSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   options: [{ type: String, required: true }]
 });
+// --- Highlight Property Schema ---
+const HighlightPropertySchema = new mongoose.Schema({
+  label: { type: String, required: true, unique: true },
+  color: { type: String, required: true }
+});
 // --- Product Schema ---
 const ProductSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
@@ -27,9 +32,14 @@ const ProductSchema = new mongoose.Schema({
   company: { type: String, default: '' },
   customFilters: [{
     name: { type: String, required: true },
-    value: { type: String, required: true }
+    values: [{ type: String }]
   }],
-  brochureUrl: { type: String, default: '' }
+  brochureUrl: { type: String, default: '' },
+  highlights: [{ type: String }],
+  projectsUsed: [{
+    name: { type: String, required: true },
+    imageUrl: { type: String, required: true }
+  }]
 });
 
 // --- Homepage Settings Schema ---
@@ -107,4 +117,5 @@ export const GalleryItem = mongoose.model('GalleryItem', GalleryItemSchema);
 export const Quote = mongoose.model('Quote', QuoteSchema);
 export const Dealership = mongoose.model('Dealership', DealershipSchema);
 export const CustomFilter = mongoose.model('CustomFilter', CustomFilterSchema);
+export const HighlightProperty = mongoose.model('HighlightProperty', HighlightPropertySchema);
 
