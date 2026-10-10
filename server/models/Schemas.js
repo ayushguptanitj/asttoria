@@ -22,6 +22,11 @@ const ProductSchema = new mongoose.Schema({
   category: { type: String, required: true }, // Maps to Category.id
   short: { type: String, required: true },
   img: { type: String, default: '' },
+  videoUrl: { type: String, default: '' },
+  videos: [{
+    title: { type: String, default: '' },
+    url: { type: String, required: true }
+  }],
   dimensions: { type: String, default: '' },
   specs: [{
     label: { type: String, required: true },
@@ -100,6 +105,15 @@ const QuoteSchema = new mongoose.Schema({
   products_required: [{ type: String }],
   additional_requirements: { type: String, default: '' },
   contact_method: { type: String, default: 'Phone' },
+  remarks: { type: String, default: '' },
+  status: { type: String, default: 'New', enum: ['New', 'Contacted', 'In Progress', 'Quoted', 'Closed'] },
+  emailReplies: [{
+    subject: { type: String, required: true },
+    message: { type: String, required: true },
+    sentAt: { type: Date, default: Date.now },
+    status: { type: String, default: 'Sent' }
+  }],
+  syncedToGoogleSheet: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 

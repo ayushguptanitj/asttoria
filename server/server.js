@@ -6,6 +6,10 @@ import 'dotenv/config';
 
 import { Product, Category, HomepageSettings, GalleryItem, Quote, Dealership, CustomFilter, HighlightProperty } from './models/Schemas.js';
 
+// Import email and Google Sheets services
+import { sendAdminLeadNotification, sendCustomerReplyEmail } from './utils/emailService.js';
+import { syncLeadToGoogleSheet, GOOGLE_APPS_SCRIPT_TEMPLATE } from './utils/googleSheetsService.js';
+
 // Import initial data from client to seed database if empty
 import { CATEGORIES, PRODUCTS } from './data/products.js';
 
@@ -321,6 +325,30 @@ async function seedDatabase() {
       { projectsUsed: { $exists: false } },
       { $set: { projectsUsed: [] } }
     );
+    await Product.updateMany(
+      { videoUrl: { $exists: false } },
+      { $set: { videoUrl: '' } }
+    );
+    await Product.updateMany(
+      { videos: { $exists: false } },
+      { $set: { videos: [] } }
+    );
+    await Quote.updateMany(
+      { remarks: { $exists: false } },
+      { $set: { remarks: '' } }
+    );
+    await Quote.updateMany(
+      { status: { $exists: false } },
+      { $set: { status: 'New' } }
+    );
+    await Quote.updateMany(
+      { emailReplies: { $exists: false } },
+      { $set: { emailReplies: [] } }
+    );
+    await Quote.updateMany(
+      { syncedToGoogleSheet: { $exists: false } },
+      { $set: { syncedToGoogleSheet: false } }
+    );
     // Dynamic migration of customFilters format from value: String to values: [String]
     const productsToMigrate = await Product.find({});
     for (const p of productsToMigrate) {
@@ -393,7 +421,7 @@ app.get('/api/products', async (req, res) => {
 
 app.post('/api/products', authMiddleware, async (req, res) => {
   try {
-    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed } = req.body;
+    const { name, category, short, img, videoUrl, videos, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed } = req.body;
     if (!name || !category || !short) {
       return res.status(400).json({ success: false, message: 'Name, category and short description are required.' });
     }
@@ -403,7 +431,7 @@ app.post('/api/products', authMiddleware, async (req, res) => {
     const id = `${rawId}-${suffix}`;
 
     const newProduct = await Product.create({
-      id, name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed
+      id, name, category, short, img, videoUrl: videoUrl || '', videos: videos || [], dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed
     });
     res.status(201).json({ success: true, data: newProduct });
   } catch (error) {
@@ -414,11 +442,11 @@ app.post('/api/products', authMiddleware, async (req, res) => {
 app.put('/api/products/:dbId', authMiddleware, async (req, res) => {
   try {
     const { dbId } = req.params;
-    const { name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed } = req.body;
+    const { name, category, short, img, videoUrl, videos, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed } = req.body;
     
     console.log('PUT body:', req.body);
     const updated = await Product.findByIdAndUpdate(dbId, {
-      name, category, short, img, dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed
+      name, category, short, img, videoUrl: videoUrl || '', videos: videos || [], dimensions, specs, applications, sizes, company, customFilters, brochureUrl, highlights, projectsUsed
     }, { new: true });
 
     if (!updated) {
@@ -732,7 +760,25 @@ app.post('/api/quotes', async (req, res) => {
 
     const newQuote = await Quote.create({
       full_name, company_name, phone, email, project_location, 
-      quantity_required, products_required, additional_requirements, contact_method
+      quantity_required, products_required, additional_requirements, contact_method,
+      remarks: '',
+      status: 'New',
+      emailReplies: [],
+      syncedToGoogleSheet: false
+    });
+
+    // 1. Send Admin Email Notification (non-blocking)
+    sendAdminLeadNotification(newQuote).catch(err => {
+      console.error('Admin email notification error:', err.message);
+    });
+
+    // 2. Sync to Google Sheet if Webhook is configured (non-blocking)
+    syncLeadToGoogleSheet(newQuote).then(result => {
+      if (result && result.synced) {
+        Quote.findByIdAndUpdate(newQuote._id, { syncedToGoogleSheet: true }).catch(() => {});
+      }
+    }).catch(err => {
+      console.error('Google Sheet auto-sync error:', err.message);
     });
 
     res.status(201).json({ success: true, data: newQuote });
@@ -748,6 +794,125 @@ app.get('/api/quotes', authMiddleware, async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+});
+
+// Update lead remarks and status
+app.patch('/api/quotes/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remarks, status } = req.body;
+    const updates = {};
+    if (remarks !== undefined) updates.remarks = remarks;
+    if (status !== undefined) updates.status = status;
+
+    const updated = await Quote.findByIdAndUpdate(id, updates, { new: true });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Quote inquiry not found.' });
+    }
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Send custom email reply to customer
+app.post('/api/quotes/:id/reply', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { subject, message } = req.body;
+    if (!subject || !message) {
+      return res.status(400).json({ success: false, message: 'Subject and message are required.' });
+    }
+
+    const quote = await Quote.findById(id);
+    if (!quote) {
+      return res.status(404).json({ success: false, message: 'Inquiry not found.' });
+    }
+
+    const result = await sendCustomerReplyEmail(quote, { subject, message });
+
+    quote.emailReplies.push({
+      subject,
+      message,
+      sentAt: new Date(),
+      status: result.success ? (result.simulated ? 'Simulated' : 'Sent') : 'Failed'
+    });
+
+    if (quote.status === 'New') {
+      quote.status = 'Contacted';
+    }
+    await quote.save();
+
+    res.json({
+      success: true,
+      message: result.simulated
+        ? 'Reply saved. (Note: Real SMTP credentials not configured yet, preview logged to console)'
+        : 'Email sent successfully to customer.',
+      simulated: result.simulated || false,
+      data: quote
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Sync single inquiry to Google Sheet
+app.post('/api/quotes/:id/sync-sheet', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const quote = await Quote.findById(id);
+    if (!quote) {
+      return res.status(404).json({ success: false, message: 'Inquiry not found.' });
+    }
+
+    const result = await syncLeadToGoogleSheet(quote);
+    if (result.synced) {
+      quote.syncedToGoogleSheet = true;
+      await quote.save();
+      return res.json({ success: true, message: 'Successfully synced inquiry to Google Sheet!', data: quote });
+    } else {
+      return res.status(400).json({ success: false, message: result.message || result.error || 'Failed to sync to Google Sheet.' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Bulk sync all inquiries to Google Sheet
+app.post('/api/quotes/sync-all-sheets', authMiddleware, async (req, res) => {
+  try {
+    const quotes = await Quote.find({}).sort({ createdAt: 1 });
+    let syncedCount = 0;
+    let failedCount = 0;
+
+    for (const q of quotes) {
+      const resSync = await syncLeadToGoogleSheet(q);
+      if (resSync.synced) {
+        q.syncedToGoogleSheet = true;
+        await q.save();
+        syncedCount++;
+      } else {
+        failedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Processed sync: ${syncedCount} inquiries synced, ${failedCount} skipped or failed.`,
+      syncedCount,
+      failedCount
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Google Apps Script code template for admin reference
+app.get('/api/quotes/google-sheet-template', authMiddleware, (req, res) => {
+  res.json({
+    success: true,
+    template: GOOGLE_APPS_SCRIPT_TEMPLATE
+  });
 });
 
 app.delete('/api/quotes/:id', authMiddleware, async (req, res) => {

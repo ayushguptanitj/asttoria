@@ -3,6 +3,22 @@ import { Link } from 'react-router-dom'
 
 const DURATION = 280 // ms — keep in sync with CSS transitions
 
+function getEmbedUrl(url) {
+  if (!url) return null;
+  const trimmed = url.trim();
+  // YouTube watch or short URL
+  const ytMatch = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  if (ytMatch) {
+    return `https://www.youtube.com/embed/${ytMatch[1]}`;
+  }
+  // Vimeo
+  const vimeoMatch = trimmed.match(/vimeo\.com\/(?:channels\/(?:\w+\/)?|groups\/(?:[^\/]*)\/videos\/|album\/(?:\d+)\/video\/|video\/|)(\d+)/);
+  if (vimeoMatch) {
+    return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+  }
+  return trimmed;
+}
+
 export default function ProductDrawer({ product, onClose, highlightProperties = [] }) {
   // `visible` drives the fade-in / zoom-in animation state
   const [visible, setVisible] = useState(false)
@@ -235,6 +251,64 @@ export default function ProductDrawer({ product, onClose, highlightProperties = 
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Product Video Section */}
+              {((product.videoUrl && product.videoUrl.trim()) || (product.videos && product.videos.length > 0)) && (
+                <div className="border-t border-[#E5E7EB] pt-6 mt-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="#0A4FAF" className="text-[#0A4FAF]">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <h4 className="text-[10px] uppercase tracking-[0.2em] text-[#0A4FAF] font-bold">
+                      Product Video & Demonstration
+                    </h4>
+                  </div>
+
+                  {product.videoUrl && product.videoUrl.trim() && (
+                    <div className="rounded-sm overflow-hidden bg-black aspect-video border border-[#E5E7EB] shadow-sm">
+                      {getEmbedUrl(product.videoUrl)?.includes('embed') ? (
+                        <iframe
+                          src={getEmbedUrl(product.videoUrl)}
+                          title={`${product.name} Video`}
+                          className="w-full h-full border-0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      ) : (
+                        <video
+                          controls
+                          src={product.videoUrl}
+                          className="w-full h-full object-contain"
+                        >
+                          Your browser does not support HTML5 video.
+                        </video>
+                      )}
+                    </div>
+                  )}
+
+                  {product.videos && product.videos.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                      {product.videos.map((vid, idx) => (
+                        <div key={idx} className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-sm p-2.5">
+                          {vid.title && <p className="text-xs font-bold text-[#111827] mb-1.5 truncate">{vid.title}</p>}
+                          <div className="aspect-video bg-black rounded overflow-hidden">
+                            {getEmbedUrl(vid.url)?.includes('embed') ? (
+                              <iframe
+                                src={getEmbedUrl(vid.url)}
+                                title={vid.title || `Video ${idx + 1}`}
+                                className="w-full h-full border-0"
+                                allowFullScreen
+                              />
+                            ) : (
+                              <video controls src={vid.url} className="w-full h-full object-contain" />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

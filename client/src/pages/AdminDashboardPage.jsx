@@ -3,6 +3,20 @@ import { useNavigate } from 'react-router-dom'
 import logo from '../assets/logo.png'
 import { API_URL } from '../config'
 
+function getEmbedUrl(url) {
+  if (!url) return null;
+  const trimmed = url.trim();
+  const ytMatch = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  if (ytMatch) {
+    return `https://www.youtube.com/embed/${ytMatch[1]}`;
+  }
+  const vimeoMatch = trimmed.match(/vimeo\.com\/(?:channels\/(?:\w+\/)?|groups\/(?:[^\/]*)\/videos\/|album\/(?:\d+)\/video\/|video\/|)(\d+)/);
+  if (vimeoMatch) {
+    return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+  }
+  return trimmed;
+}
+
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('dashboard') // dashboard, homepage, gallery, products, categories, leads
   const [loading, setLoading] = useState(true)
@@ -20,7 +34,7 @@ export default function AdminDashboardPage() {
 
   // Forms / Editing states
   const [productForm, setProductForm] = useState({
-    name: '', category: '', short: '', img: '', dimensions: '',
+    name: '', category: '', short: '', img: '', videoUrl: '', videos: [], dimensions: '',
     specs: [{ label: '', value: '' }],
     applications: '', sizes: '',
     company: '', customFilters: [], brochureUrl: '', highlights: [],
@@ -35,6 +49,17 @@ export default function AdminDashboardPage() {
   const [galleryForm, setGalleryForm] = useState({ title: '', imageUrl: '', description: '' })
   
   const [leadDetail, setLeadDetail] = useState(null)
+  const [leadSearch, setLeadSearch] = useState('')
+  const [leadStatusFilter, setLeadStatusFilter] = useState('ALL')
+  const [leadDateFilter, setLeadDateFilter] = useState('ALL')
+  const [leadRemarkInput, setLeadRemarkInput] = useState('')
+  const [isSavingRemark, setIsSavingRemark] = useState(false)
+  const [showReplyModal, setShowReplyModal] = useState(false)
+  const [replySubject, setReplySubject] = useState('')
+  const [replyMessage, setReplyMessage] = useState('')
+  const [isSendingReply, setIsSendingReply] = useState(false)
+  const [showGoogleSheetGuide, setShowGoogleSheetGuide] = useState(false)
+  const [syncStatusMsg, setSyncStatusMsg] = useState('')
 
   const [filterName, setFilterName] = useState('')
   const [filterOptionsText, setFilterOptionsText] = useState('')
@@ -222,6 +247,8 @@ export default function AdminDashboardPage() {
       category: categories[0]?.id || '',
       short: '',
       img: '',
+      videoUrl: '',
+      videos: [],
       dimensions: '',
       specs: [{ label: '', value: '' }],
       applications: '',
@@ -242,6 +269,8 @@ export default function AdminDashboardPage() {
       category: prod.category,
       short: prod.short,
       img: prod.img || '',
+      videoUrl: prod.videoUrl || '',
+      videos: prod.videos || [],
       dimensions: prod.dimensions || '',
       specs: prod.specs.length > 0 ? prod.specs : [{ label: '', value: '' }],
       applications: prod.applications ? prod.applications.join(', ') : '',
@@ -304,6 +333,8 @@ export default function AdminDashboardPage() {
       category: productForm.category,
       short: productForm.short,
       img: productForm.img,
+      videoUrl: productForm.videoUrl || '',
+      videos: productForm.videos || [],
       dimensions: productForm.dimensions,
       specs: filteredSpecs,
       applications: appsArray,
@@ -700,6 +731,232 @@ export default function AdminDashboardPage() {
       alert('Error deleting lead')
     }
   }
+
+  async function handleSaveLeadRemarks(id, remarks) {
+    setIsSavingRemark(true)
+    try {
+      const res = await fetch(`${API_URL}/quotes/${id}`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ remarks })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setLeads(leads.map(l => l._id === id ? data.data : l))
+        if (leadDetail && leadDetail._id === id) {
+          setLeadDetail(data.data)
+        }
+        alert('Remarks saved successfully!')
+      } else {
+        alert(data.message || 'Failed to save remarks')
+      }
+    } catch (err) {
+      alert('Error saving remarks')
+    } finally {
+      setIsSavingRemark(false)
+    }
+  }
+
+  async function handleUpdateLeadStatus(id, status) {
+    try {
+      const res = await fetch(`${API_URL}/quotes/${id}`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ status })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setLeads(leads.map(l => l._id === id ? data.data : l))
+        if (leadDetail && leadDetail._id === id) {
+          setLeadDetail(data.data)
+        }
+      } else {
+        alert(data.message || 'Failed to update status')
+      }
+    } catch (err) {
+      alert('Error updating status')
+    }
+  }
+
+  async function handleSendEmailReply(e) {
+    e.preventDefault()
+    if (!leadDetail) return
+    if (!replySubject.trim() || !replyMessage.trim()) {
+      alert('Please provide both subject and message.')
+      return
+    }
+
+    setIsSendingReply(true)
+    try {
+      const res = await fetch(`${API_URL}/quotes/${leadDetail._id}/reply`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ subject: replySubject, message: replyMessage })
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert(data.message)
+        setLeads(leads.map(l => l._id === leadDetail._id ? data.data : l))
+        setLeadDetail(data.data)
+        setShowReplyModal(false)
+      } else {
+        alert(data.message || 'Failed to send reply email')
+      }
+    } catch (err) {
+      alert('Error sending reply email')
+    } finally {
+      setIsSendingReply(false)
+    }
+  }
+
+  async function handleSyncLeadToSheet(id) {
+    try {
+      const res = await fetch(`${API_URL}/quotes/${id}/sync-sheet`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      })
+      const data = await res.json()
+      if (data.success) {
+        setSyncStatusMsg('Inquiry synced to Google Sheet!')
+        setLeads(leads.map(l => l._id === id ? data.data : l))
+        if (leadDetail && leadDetail._id === id) {
+          setLeadDetail(data.data)
+        }
+      } else {
+        alert(data.message || 'Failed to sync to Google Sheet. Check server/.env GOOGLE_SHEET_WEBHOOK_URL.')
+      }
+    } catch (err) {
+      alert('Error syncing to Google Sheet')
+    }
+    setTimeout(() => setSyncStatusMsg(''), 4000)
+  }
+
+  async function handleSyncAllLeadsToSheet() {
+    try {
+      const res = await fetch(`${API_URL}/quotes/sync-all-sheets`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      })
+      const data = await res.json()
+      alert(data.message || 'Processed Google Sheets sync')
+      const token = localStorage.getItem('admin_token')
+      const refreshRes = await fetch(`${API_URL}/quotes`, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (refreshRes.ok) {
+        const freshLeads = await refreshRes.json()
+        setLeads(freshLeads)
+      }
+    } catch (err) {
+      alert('Error triggering sync to Google Sheets')
+    }
+  }
+
+  function handleExportLeadsCSV() {
+    if (leads.length === 0) {
+      alert('No inquiries to export.')
+      return
+    }
+
+    const targetLeads = filteredLeads.length > 0 ? filteredLeads : leads
+
+    const headers = [
+      'Submission Date',
+      'Customer Name',
+      'Company',
+      'Phone',
+      'Email',
+      'Project Location',
+      'Quantity Required',
+      'Products Required',
+      'Contact Preference',
+      'Status',
+      'Admin Remarks',
+      'Client Requirements'
+    ]
+
+    const escapeCsv = (str) => {
+      if (!str) return '""'
+      const sanitized = String(str).replace(/"/g, '""').replace(/\r\n/g, ' ').replace(/\n/g, ' ')
+      return `"${sanitized}"`
+    }
+
+    const rows = targetLeads.map(l => [
+      escapeCsv(new Date(l.createdAt).toLocaleString()),
+      escapeCsv(l.full_name),
+      escapeCsv(l.company_name || 'Individual'),
+      escapeCsv(l.phone),
+      escapeCsv(l.email),
+      escapeCsv(l.project_location),
+      escapeCsv(l.quantity_required),
+      escapeCsv(Array.isArray(l.products_required) ? l.products_required.join('; ') : ''),
+      escapeCsv(l.contact_method),
+      escapeCsv(l.status || 'New'),
+      escapeCsv(l.remarks || ''),
+      escapeCsv(l.additional_requirements || '')
+    ].join(','))
+
+    const csvContent = [headers.join(','), ...rows].join('\r\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `asttoria-inquiries-${new Date().toISOString().slice(0, 10)}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  // Sync remarks & email defaults when lead detail changes
+  useEffect(() => {
+    if (leadDetail) {
+      setLeadRemarkInput(leadDetail.remarks || '')
+      setReplySubject(`Re: Quotation Inquiry - ${leadDetail.products_required?.join(', ') || 'ASTTORIA Products'}`)
+      setReplyMessage(`Dear ${leadDetail.full_name},\n\nThank you for reaching out to ASTTORIA regarding your requirements for ${leadDetail.products_required?.join(', ') || 'our certified false ceiling and partition framework systems'}.\n\nWe have reviewed your project specifications for ${leadDetail.project_location || 'your site'} (Quantity: ${leadDetail.quantity_required || 'as specified'}).\n\n[Please enter quote pricing, dispatch timeline, or technical details here]\n\nFeel free to reach back to us directly at +91 98888 00000 or reply to this email for custom fabrication lengths.\n\nWarm regards,\nASTTORIA Sales & Project Team\nMohali, Punjab, India`)
+    }
+  }, [leadDetail])
+
+  // Filtered Leads computation
+  const filteredLeads = leads.filter(lead => {
+    // 1. Search Query
+    if (leadSearch.trim()) {
+      const q = leadSearch.toLowerCase().trim()
+      const name = (lead.full_name || '').toLowerCase()
+      const company = (lead.company_name || '').toLowerCase()
+      const phone = (lead.phone || '').toLowerCase()
+      const email = (lead.email || '').toLowerCase()
+      const loc = (lead.project_location || '').toLowerCase()
+      const prods = (lead.products_required || []).join(' ').toLowerCase()
+      const remarks = (lead.remarks || '').toLowerCase()
+
+      const matches = name.includes(q) || company.includes(q) || phone.includes(q) ||
+        email.includes(q) || loc.includes(q) || prods.includes(q) || remarks.includes(q)
+      if (!matches) return false
+    }
+
+    // 2. Status Filter
+    if (leadStatusFilter !== 'ALL') {
+      const currentStatus = lead.status || 'New'
+      if (currentStatus !== leadStatusFilter) return false
+    }
+
+    // 3. Date Filter
+    if (leadDateFilter !== 'ALL') {
+      const leadDate = new Date(lead.createdAt)
+      const now = new Date()
+      if (leadDateFilter === 'TODAY') {
+        const isToday = leadDate.toDateString() === now.toDateString()
+        if (!isToday) return false
+      } else if (leadDateFilter === 'WEEK') {
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        if (leadDate < weekAgo) return false
+      } else if (leadDateFilter === 'MONTH') {
+        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        if (leadDate < monthAgo) return false
+      }
+    }
+
+    return true
+  })
 
   if (loading) {
     return (
@@ -1393,6 +1650,36 @@ export default function AdminDashboardPage() {
                           className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-3 text-sm rounded-lg"
                         />
                       </div>
+
+                      <div className="col-span-1 md:col-span-2 space-y-2">
+                        <label className="block text-xs uppercase font-semibold text-gray-400">Product Video URL (YouTube, Vimeo, or MP4 link)</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. https://www.youtube.com/watch?v=... or https://example.com/demo.mp4"
+                          value={productForm.videoUrl || ''}
+                          onChange={(e) => setProductForm({ ...productForm, videoUrl: e.target.value })}
+                          className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-3 text-sm rounded-lg"
+                        />
+                        <span className="text-[11px] text-gray-400 block">Provide a YouTube, Vimeo, or direct MP4 link to show a product demonstration video.</span>
+
+                        {productForm.videoUrl && productForm.videoUrl.trim() && (
+                          <div className="mt-3 bg-white/[0.02] border border-white/10 p-3 rounded-xl">
+                            <label className="block text-[11px] font-bold text-gray-300 mb-2">Video Preview:</label>
+                            <div className="aspect-video max-w-md bg-black rounded overflow-hidden shadow">
+                              {getEmbedUrl(productForm.videoUrl)?.includes('embed') ? (
+                                <iframe
+                                  src={getEmbedUrl(productForm.videoUrl)}
+                                  title="Video Preview"
+                                  className="w-full h-full border-0"
+                                  allowFullScreen
+                                />
+                              ) : (
+                                <video controls src={productForm.videoUrl} className="w-full h-full object-contain" />
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       
                       {customFilters.map((group) => {
                         const currentVals = productForm.customFilters?.find(cf => cf.name === group.name)?.values || []
@@ -2004,52 +2291,221 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* TAB 6: CUSTOMER LEADS / INQUIRIES INBOX */}
+        {/* TAB 6: CUSTOMER LEADS / INQUIRIES CRM INBOX */}
         {activeTab === 'leads' && (
-          <div className="space-y-10">
-            <div>
-              <h2 className="text-3xl font-black text-white tracking-tight">Leads Inbox</h2>
-              <p className="text-gray-400 mt-2 text-sm">Review submitted quotation inquiries and requirements submitted from your website's contact form.</p>
+          <div className="space-y-8">
+            {/* Header & Main Actions */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
+              <div>
+                <h2 className="text-3xl font-black text-white tracking-tight">Leads & Inquiries CRM</h2>
+                <p className="text-gray-400 mt-1 text-sm">
+                  Track client inquiries, manage lead remarks, send branded email replies, and export or sync to Google Sheets.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportLeadsCSV}
+                  className="inline-flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold px-4 py-2.5 rounded-lg text-xs shadow-sm transition-all cursor-pointer"
+                  title="Export inquiries to CSV for Excel and Google Sheets"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Export CSV / Excel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSyncAllLeadsToSheet}
+                  className="inline-flex items-center gap-2 bg-[#0A4FAF]/20 hover:bg-[#0A4FAF]/30 text-[#7BA7E8] border border-[#0A4FAF]/30 font-bold px-4 py-2.5 rounded-lg text-xs shadow-sm transition-all cursor-pointer"
+                  title="Sync all leads to configured Google Sheet webhook"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                  </svg>
+                  Sync to Google Sheet
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowGoogleSheetGuide(true)}
+                  className="inline-flex items-center gap-2 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 font-bold px-3 py-2.5 rounded-lg text-xs transition-all cursor-pointer"
+                  title="How to connect with Google Sheets webhook"
+                >
+                  ⚙️ Sheet Setup
+                </button>
+              </div>
             </div>
 
-            <div className="grid md:grid-cols-12 gap-8 items-start">
-              {/* Inbox List */}
-              <div className="md:col-span-6 space-y-4">
-                <h3 className="text-lg font-bold text-white mb-2">Quotation Requests ({leads.length})</h3>
+            {/* Quick Metrics Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl">
+                <div className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Total Leads</div>
+                <div className="text-2xl font-black text-white mt-1">{leads.length}</div>
+              </div>
+              <div className="bg-blue-500/[0.04] border border-blue-500/20 p-4 rounded-xl">
+                <div className="text-[11px] text-blue-400 font-bold uppercase tracking-wider">New Leads</div>
+                <div className="text-2xl font-black text-blue-300 mt-1">
+                  {leads.filter(l => (l.status || 'New') === 'New').length}
+                </div>
+              </div>
+              <div className="bg-purple-500/[0.04] border border-purple-500/20 p-4 rounded-xl">
+                <div className="text-[11px] text-purple-400 font-bold uppercase tracking-wider">In Progress / Contacted</div>
+                <div className="text-2xl font-black text-purple-300 mt-1">
+                  {leads.filter(l => l.status === 'Contacted' || l.status === 'In Progress' || l.status === 'Quoted').length}
+                </div>
+              </div>
+              <div className="bg-emerald-500/[0.04] border border-emerald-500/20 p-4 rounded-xl">
+                <div className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider">Closed Deals</div>
+                <div className="text-2xl font-black text-emerald-300 mt-1">
+                  {leads.filter(l => l.status === 'Closed').length}
+                </div>
+              </div>
+            </div>
 
-                {leads.length > 0 ? (
-                  <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-2">
-                    {leads.map(lead => {
+            {/* Filters & Search Toolbar */}
+            <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
+              {/* Search */}
+              <div className="relative flex-1">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+                >
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Filter inquiries by customer, phone, email, requirements, or remarks..."
+                  value={leadSearch}
+                  onChange={(e) => setLeadSearch(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none pl-10 pr-4 py-2.5 text-xs rounded-lg text-white placeholder-gray-500"
+                />
+              </div>
+
+              {/* Status and Date Filters */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <select
+                  value={leadStatusFilter}
+                  onChange={(e) => setLeadStatusFilter(e.target.value)}
+                  className="bg-[#1E293B] border border-white/10 text-white text-xs font-semibold px-3 py-2.5 rounded-lg outline-none focus:border-[#0A4FAF]"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="New">Status: New</option>
+                  <option value="Contacted">Status: Contacted</option>
+                  <option value="In Progress">Status: In Progress</option>
+                  <option value="Quoted">Status: Quoted</option>
+                  <option value="Closed">Status: Closed</option>
+                </select>
+
+                <select
+                  value={leadDateFilter}
+                  onChange={(e) => setLeadDateFilter(e.target.value)}
+                  className="bg-[#1E293B] border border-white/10 text-white text-xs font-semibold px-3 py-2.5 rounded-lg outline-none focus:border-[#0A4FAF]"
+                >
+                  <option value="ALL">All Time</option>
+                  <option value="TODAY">Today</option>
+                  <option value="WEEK">Last 7 Days</option>
+                  <option value="MONTH">Last 30 Days</option>
+                </select>
+
+                {(leadSearch.trim() || leadStatusFilter !== 'ALL' || leadDateFilter !== 'ALL') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLeadSearch('')
+                      setLeadStatusFilter('ALL')
+                      setLeadDateFilter('ALL')
+                    }}
+                    className="text-xs text-red-400 hover:text-red-300 font-semibold px-2 py-1 underline cursor-pointer"
+                  >
+                    Reset Filters
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Split View: List on Left, Detail on Right */}
+            <div className="grid md:grid-cols-12 gap-8 items-start">
+              {/* Left Column: Leads List */}
+              <div className="md:col-span-5 space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-base font-bold text-white">
+                    Inquiries List ({filteredLeads.length})
+                  </h3>
+                  {filteredLeads.length !== leads.length && (
+                    <span className="text-[11px] text-gray-400 font-mono">
+                      Filtered from {leads.length} total
+                    </span>
+                  )}
+                </div>
+
+                {filteredLeads.length > 0 ? (
+                  <div className="space-y-3 max-h-[72vh] overflow-y-auto pr-2">
+                    {filteredLeads.map(lead => {
                       const isActive = leadDetail?._id === lead._id
                       const dateStr = new Date(lead.createdAt).toLocaleDateString(undefined, {
                         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                       })
+                      const leadStatus = lead.status || 'New'
+
+                      const statusColors = {
+                        'New': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                        'Contacted': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+                        'In Progress': 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+                        'Quoted': 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+                        'Closed': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      }
+
                       return (
                         <button
                           key={lead._id}
                           onClick={() => setLeadDetail(lead)}
-                          className={`w-full p-5 border text-left rounded-xl transition-all block ${
+                          className={`w-full p-4 border text-left rounded-xl transition-all block cursor-pointer ${
                             isActive
-                              ? 'bg-white/[0.04] border-[#0A4FAF] shadow-lg shadow-[#0A4FAF]/5'
-                              : 'bg-white/[0.01] border-white/5 hover:border-white/10'
+                              ? 'bg-white/[0.05] border-[#0A4FAF] shadow-lg shadow-[#0A4FAF]/5'
+                              : 'bg-white/[0.01] border-white/5 hover:border-white/10 hover:bg-white/[0.02]'
                           }`}
                         >
-                          <div className="flex justify-between items-start gap-3">
-                            <span className="font-bold text-white text-base">{lead.full_name}</span>
-                            <span className="text-[10px] text-gray-400 whitespace-nowrap">{dateStr}</span>
+                          <div className="flex justify-between items-start gap-2">
+                            <span className="font-bold text-white text-sm truncate">{lead.full_name}</span>
+                            <span className="text-[10px] text-gray-400 whitespace-nowrap font-mono">{dateStr}</span>
                           </div>
-                          <div className="text-xs text-gray-400 mt-1 truncate">{lead.company_name || 'Individual'} · {lead.phone}</div>
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            <span className="text-[9px] uppercase font-extrabold px-2 py-0.5 rounded bg-white/5 text-gray-300 border border-white/10">
+
+                          <div className="text-xs text-gray-400 mt-1 truncate">
+                            {lead.company_name || 'Individual'} · {lead.phone}
+                          </div>
+
+                          {/* Remarks preview badge if exists */}
+                          {lead.remarks && (
+                            <div className="mt-2 text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/15 px-2 py-1 rounded truncate">
+                              💬 Remark: {lead.remarks}
+                            </div>
+                          )}
+
+                          <div className="mt-3 flex flex-wrap gap-1.5 items-center">
+                            <span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded border ${statusColors[leadStatus] || statusColors['New']}`}>
+                              {leadStatus}
+                            </span>
+                            <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded bg-white/5 text-gray-300 border border-white/10">
                               {lead.contact_method}
                             </span>
-                            {lead.products_required.slice(0, 2).map((p, idx) => (
-                              <span key={idx} className="text-[9px] uppercase font-extrabold px-2 py-0.5 rounded bg-[#0A4FAF]/10 text-[#7BA7E8]">
+                            {lead.syncedToGoogleSheet && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                                📊 Synced
+                              </span>
+                            )}
+                            {lead.products_required && lead.products_required.slice(0, 1).map((p, idx) => (
+                              <span key={idx} className="text-[9px] font-semibold px-2 py-0.5 rounded bg-[#0A4FAF]/10 text-[#7BA7E8] truncate max-w-[120px]">
                                 {p}
                               </span>
                             ))}
-                            {lead.products_required.length > 2 && (
-                              <span className="text-[9px] font-extrabold text-gray-500">+{lead.products_required.length - 2} more</span>
+                            {lead.products_required && lead.products_required.length > 1 && (
+                              <span className="text-[9px] text-gray-500 font-bold">
+                                +{lead.products_required.length - 1} more
+                              </span>
                             )}
                           </div>
                         </button>
@@ -2057,37 +2513,92 @@ export default function AdminDashboardPage() {
                     })}
                   </div>
                 ) : (
-                  <div className="text-center py-16 bg-white/[0.01] border border-white/5 rounded-xl text-gray-500">
-                    Your Leads inbox is currently empty.
+                  <div className="text-center py-16 bg-white/[0.01] border border-white/5 rounded-xl text-gray-500 text-xs">
+                    No inquiries match the current search filters.
                   </div>
                 )}
               </div>
 
-              {/* Inquiry Detail View */}
-              <div className="md:col-span-6 bg-white/[0.02] border border-white/5 rounded-xl p-6 md:p-8 min-h-[450px]">
+              {/* Right Column: Lead Detail & CRM Actions */}
+              <div className="md:col-span-7 bg-white/[0.02] border border-white/5 rounded-xl p-6 md:p-8 min-h-[500px]">
                 {leadDetail ? (
                   <div className="space-y-6">
-                    <div className="flex justify-between items-start border-b border-white/5 pb-4 gap-4">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/5 pb-4 gap-4">
                       <div>
-                        <h4 className="text-xl font-bold text-white">{leadDetail.full_name}</h4>
-                        <p className="text-sm text-gray-400 mt-1">{leadDetail.company_name || 'Individual Client'}</p>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xl font-bold text-white">{leadDetail.full_name}</h4>
+                          {leadDetail.syncedToGoogleSheet && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                              Google Sheet Synced
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">{leadDetail.company_name || 'Individual Client'}</p>
                       </div>
-                      <button
-                        onClick={() => handleDeleteLead(leadDetail._id)}
-                        className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/15 text-xs px-3.5 py-1.5 rounded-lg font-bold transition-colors cursor-pointer"
-                      >
-                        Delete Inquiry
-                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSyncLeadToSheet(leadDetail._id)}
+                          className="bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 text-xs px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer"
+                          title="Sync this inquiry to Google Sheet"
+                        >
+                          Sync Sheet
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLead(leadDetail._id)}
+                          className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/15 text-xs px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
 
+                    {syncStatusMsg && (
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 px-3 py-2 rounded text-xs font-semibold">
+                        ✓ {syncStatusMsg}
+                      </div>
+                    )}
+
+                    {/* Status Changer Bar */}
+                    <div className="bg-white/[0.02] border border-white/5 p-3 rounded-lg flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Lead Status:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {['New', 'Contacted', 'In Progress', 'Quoted', 'Closed'].map((st) => {
+                          const isCurrent = (leadDetail.status || 'New') === st
+                          return (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => handleUpdateLeadStatus(leadDetail._id, st)}
+                              className={`text-xs px-3 py-1 rounded font-bold transition-all cursor-pointer ${
+                                isCurrent
+                                  ? 'bg-[#0A4FAF] text-white shadow-sm'
+                                  : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              {st}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Contact details */}
                     <div className="grid grid-cols-2 gap-4 text-xs">
                       <div>
                         <div className="text-gray-400 uppercase font-semibold">Phone</div>
-                        <a href={`tel:${leadDetail.phone}`} className="text-[#7BA7E8] font-bold mt-1 block hover:underline">{leadDetail.phone}</a>
+                        <a href={`tel:${leadDetail.phone}`} className="text-[#7BA7E8] font-bold mt-1 block hover:underline">
+                          {leadDetail.phone}
+                        </a>
                       </div>
                       <div>
                         <div className="text-gray-400 uppercase font-semibold">Email</div>
-                        <a href={`mailto:${leadDetail.email}`} className="text-[#7BA7E8] font-bold mt-1 block hover:underline">{leadDetail.email}</a>
+                        <a href={`mailto:${leadDetail.email}`} className="text-[#7BA7E8] font-bold mt-1 block hover:underline">
+                          {leadDetail.email}
+                        </a>
                       </div>
                       <div>
                         <div className="text-gray-400 uppercase font-semibold">Project Location</div>
@@ -2099,14 +2610,19 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
+                    {/* Products requested */}
                     <div>
                       <div className="text-xs text-gray-400 uppercase font-semibold mb-2">Requested Products</div>
                       <div className="flex flex-wrap gap-2">
-                        {leadDetail.products_required.map((p, idx) => (
-                          <span key={idx} className="text-xs bg-[#0A4FAF]/20 text-[#7BA7E8] px-3 py-1 rounded border border-[#0A4FAF]/30 font-semibold">
-                            {p}
-                          </span>
-                        ))}
+                        {leadDetail.products_required && leadDetail.products_required.length > 0 ? (
+                          leadDetail.products_required.map((p, idx) => (
+                            <span key={idx} className="text-xs bg-[#0A4FAF]/20 text-[#7BA7E8] px-3 py-1 rounded border border-[#0A4FAF]/30 font-semibold">
+                              {p}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-gray-500 italic">No specific products specified</span>
+                        )}
                       </div>
                     </div>
 
@@ -2123,21 +2639,247 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
+                    {/* Client Additional Requirements */}
                     <div>
-                      <div className="text-xs text-gray-400 uppercase font-semibold mb-2">Additional Specifications / Requirements</div>
-                      <div className="bg-white/[0.03] border border-white/10 p-4 rounded-lg text-sm text-gray-200 leading-relaxed max-h-48 overflow-y-auto">
+                      <div className="text-xs text-gray-400 uppercase font-semibold mb-2">Client Message / Specifications</div>
+                      <div className="bg-white/[0.03] border border-white/10 p-4 rounded-lg text-xs text-gray-200 leading-relaxed max-h-32 overflow-y-auto">
                         {leadDetail.additional_requirements || 'No additional details provided by the client.'}
                       </div>
                     </div>
+
+                    {/* --- REMARK SECTION FOR ADMIN LEAD --- */}
+                    <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl space-y-3">
+                      <div className="flex justify-between items-center">
+                        <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                          <span>📝</span> Admin Remarks / Notes
+                        </label>
+                        {leadDetail.remarks && (
+                          <span className="text-[10px] text-gray-400">Remark saved</span>
+                        )}
+                      </div>
+
+                      <textarea
+                        rows={3}
+                        placeholder="Add internal remarks about this customer lead (e.g. Called customer on Tuesday, requested quote for 300 pcs 122 ceiling section, scheduled callback)..."
+                        value={leadRemarkInput}
+                        onChange={(e) => setLeadRemarkInput(e.target.value)}
+                        className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none p-3 text-xs rounded-lg text-white placeholder-gray-500"
+                      />
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveLeadRemarks(leadDetail._id, leadRemarkInput)}
+                          disabled={isSavingRemark}
+                          className="bg-[#0A4FAF] hover:bg-[#083D87] disabled:opacity-50 text-white font-bold px-4 py-2 rounded-lg text-xs shadow-md transition-colors cursor-pointer"
+                        >
+                          {isSavingRemark ? 'Saving Remark...' : 'Save Remark'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* --- EMAIL INTEGRATION SECTION --- */}
+                    <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                            <span>✉️</span> Customer Email Communication
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-0.5">Send official branded quotation emails directly to {leadDetail.email}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowReplyModal(true)}
+                          className="bg-[#0A4FAF] hover:bg-[#083D87] text-white font-bold px-4 py-2 rounded-lg text-xs shadow-md transition-colors cursor-pointer shrink-0"
+                        >
+                          Reply via Email
+                        </button>
+                      </div>
+
+                      {/* Previous replies history */}
+                      {leadDetail.emailReplies && leadDetail.emailReplies.length > 0 && (
+                        <div className="mt-3 space-y-2 border-t border-white/5 pt-3">
+                          <div className="text-[11px] font-bold text-gray-400 uppercase">Previous Email Responses ({leadDetail.emailReplies.length}):</div>
+                          <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                            {leadDetail.emailReplies.map((rep, idx) => (
+                              <div key={idx} className="bg-white/[0.01] border border-white/5 p-2.5 rounded-lg text-xs">
+                                <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
+                                  <span className="font-bold text-white truncate max-w-[200px]">{rep.subject}</span>
+                                  <span>{new Date(rep.sentAt).toLocaleString()}</span>
+                                </div>
+                                <p className="text-gray-300 line-clamp-2 text-[11px] whitespace-pre-line">{rep.message}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-gray-500 text-sm py-20 text-center space-y-3">
-                    <span>✉️</span>
-                    <span>Select an inquiry from the list to view detailed requirements.</span>
+                    <span className="text-3xl">✉️</span>
+                    <span>Select an inquiry from the list on the left to view customer details, add remarks, or reply via email.</span>
                   </div>
                 )}
               </div>
             </div>
+
+            {/* MODAL: EMAIL REPLY TO CUSTOMER */}
+            {showReplyModal && leadDetail && (
+              <div className="fixed inset-0 z-50 bg-[#0B1220]/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="w-full max-w-2xl bg-[#0F172A] border border-white/10 p-6 md:p-8 rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto space-y-5">
+                  <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Send Branded Quotation Email</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">To: <span className="text-[#7BA7E8] font-bold">{leadDetail.full_name}</span> &lt;{leadDetail.email}&gt;</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowReplyModal(false)}
+                      className="text-gray-400 hover:text-white text-lg font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSendEmailReply} className="space-y-4">
+                    <div>
+                      <label className="block text-xs uppercase font-semibold text-gray-400 mb-1.5">Email Subject *</label>
+                      <input
+                        type="text"
+                        required
+                        value={replySubject}
+                        onChange={(e) => setReplySubject(e.target.value)}
+                        className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none px-4 py-2.5 text-xs rounded-lg text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs uppercase font-semibold text-gray-400 mb-1.5">
+                        Message Content (Uses ASTTORIA Branded Template) *
+                      </label>
+                      <textarea
+                        rows={10}
+                        required
+                        value={replyMessage}
+                        onChange={(e) => setReplyMessage(e.target.value)}
+                        className="w-full bg-white/[0.04] border border-white/10 focus:border-[#0A4FAF] outline-none p-4 text-xs rounded-lg text-white leading-relaxed font-sans"
+                      />
+                      <span className="text-[11px] text-gray-400 mt-1 block">
+                        Your message will be delivered with official ASTTORIA branding, company contact desk, and disclaimer.
+                      </span>
+                    </div>
+
+                    <div className="flex justify-end gap-3 border-t border-white/5 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setShowReplyModal(false)}
+                        className="bg-white/5 hover:bg-white/10 text-white px-5 py-2.5 rounded-lg text-xs font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSendingReply}
+                        className="bg-[#0A4FAF] hover:bg-[#083D87] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-xs font-semibold shadow-md cursor-pointer flex items-center gap-2"
+                      >
+                        {isSendingReply ? 'Sending Email...' : 'Send Branded Email'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL: GOOGLE SHEETS SETUP GUIDE */}
+            {showGoogleSheetGuide && (
+              <div className="fixed inset-0 z-50 bg-[#0B1220]/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="w-full max-w-2xl bg-[#0F172A] border border-white/10 p-6 md:p-8 rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto space-y-5">
+                  <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Google Sheets Integration Guide</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">Automatically sync all customer leads to your Google Sheet in 2 minutes.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowGoogleSheetGuide(false)}
+                      className="text-gray-400 hover:text-white text-lg font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="space-y-4 text-xs text-gray-300">
+                    <div className="space-y-2">
+                      <div className="font-bold text-white">Step 1: Create a Google Sheet</div>
+                      <p>Open <a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-[#7BA7E8] underline font-semibold">sheets.new</a> to create a new blank Google Sheet.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="font-bold text-white">Step 2: Add Google Apps Script</div>
+                      <p>In your Google Sheet, go to <strong>Extensions &gt; Apps Script</strong>. Replace the code with this script:</p>
+                      <div className="relative">
+                        <pre className="bg-[#0B1220] border border-white/10 p-3 rounded-lg overflow-x-auto text-[11px] text-gray-300 font-mono">
+{`function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["Date", "Name", "Company", "Phone", "Email", "Location", "Quantity", "Products", "Method", "Requirements", "Status", "Remarks"]);
+    sheet.getRange(1, 1, 1, 12).setFontWeight("bold").setBackground("#0B1220").setFontColor("#FFFFFF");
+  }
+  var data = JSON.parse(e.postData.contents);
+  sheet.appendRow([data.date, data.fullName, data.company, data.phone, data.email, data.location, data.quantity, data.products, data.contactMethod, data.requirements, data.status, data.remarks]);
+  return ContentService.createTextOutput(JSON.stringify({"result": "success"})).setMimeType(ContentService.MimeType.JSON);
+}`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(`function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["Date", "Name", "Company", "Phone", "Email", "Location", "Quantity", "Products", "Method", "Requirements", "Status", "Remarks"]);
+    sheet.getRange(1, 1, 1, 12).setFontWeight("bold").setBackground("#0B1220").setFontColor("#FFFFFF");
+  }
+  var data = JSON.parse(e.postData.contents);
+  sheet.appendRow([data.date, data.fullName, data.company, data.phone, data.email, data.location, data.quantity, data.products, data.contactMethod, data.requirements, data.status, data.remarks]);
+  return ContentService.createTextOutput(JSON.stringify({"result": "success"})).setMimeType(ContentService.MimeType.JSON);
+}`);
+                            alert('Google Apps Script copied to clipboard!');
+                          }}
+                          className="absolute top-2 right-2 bg-[#0A4FAF] text-white text-[10px] font-bold px-2 py-1 rounded"
+                        >
+                          Copy Script
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="font-bold text-white">Step 3: Deploy as Web App</div>
+                      <p>Click <strong>Deploy &gt; New deployment</strong>, select <strong>Web app</strong>, set <em>Who has access</em> to <strong>Anyone</strong>, and click <strong>Deploy</strong>.</p>
+                      <p>Copy the Web App URL and add it to <code className="bg-white/10 px-1 py-0.5 rounded font-mono">server/.env</code>:</p>
+                      <pre className="bg-[#0B1220] border border-white/10 p-2 rounded text-[11px] font-mono text-emerald-400">
+GOOGLE_SHEET_WEBHOOK_URL=https://script.google.com/macros/s/AKfycb.../exec
+                      </pre>
+                    </div>
+
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-lg text-emerald-300">
+                      💡 <strong>Instant Alternative:</strong> You can also click the <strong>"Export CSV / Excel"</strong> button at any time to download all inquiries in one click and open them directly in Google Sheets!
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end border-t border-white/5 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowGoogleSheetGuide(false)}
+                      className="bg-[#0A4FAF] text-white font-bold px-6 py-2.5 rounded-lg text-xs cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

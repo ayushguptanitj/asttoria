@@ -31,6 +31,14 @@ function ProductCard({ product, onOpen }) {
         <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#0A4FAF] font-semibold">
           {product.category}
         </div>
+        {Boolean(product.videoUrl || (product.videos && product.videos.length > 0)) && (
+          <div className="absolute top-3 right-3 bg-[#0B1220]/80 backdrop-blur-sm text-white px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow">
+            <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Video
+          </div>
+        )}
       </div>
 
       {/* Body */}
